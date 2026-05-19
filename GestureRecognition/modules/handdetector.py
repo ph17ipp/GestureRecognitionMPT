@@ -130,6 +130,14 @@ class HandDetector(Module):
         dict
             Ein leeres Dictionary.
         """
+        # Pfad zum Modell (hand_landmarker.task)
+        base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
+        # Optionen für die Handdetektion
+        options = vision.HandLandmarkerOptions(base_options=base_options,
+                                       num_hands=2)
+        # Lädt es in Arbeitsspeicher
+        self.detector = vision.HandLandmarker.create_from_options(options)
+
         return {}
 
     def step(self, data):
