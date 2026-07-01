@@ -12,8 +12,8 @@ def data_labeling(times: int, label: str):
 
     1. Aufnahme starten
 
-       - Starte SignalHub über einen Subprocess
-       - Übergib einen Dateipfad für die Aufnahme
+       - Starte SignalHub über einen Subprocess mit ``--mode record``
+       - Übergib einen Dateipfad für die Aufnahme ``--recorder <path_to_save_recording_at>.pkl``
        - Überlege, welche Module aufgenommen werden sollen
        - Nimm entsprechende Änderungen in der ``config.yaml`` vor
 
