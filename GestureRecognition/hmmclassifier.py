@@ -1,3 +1,9 @@
+import os
+import pickle
+import numpy as np
+from hmmlearn import hmm
+
+
 class HMMClassifier:
     """
     TODO: Implementiere einen HMM-basierten Klassifikator
@@ -51,8 +57,8 @@ class HMMClassifier:
     - Vergleiche verschiedene Modellkonfigurationen
 
     """
-
-    def fit(self):
+    
+    def fit(self, X_dict):
         """
         TODO: Trainiere den Klassifikator
 
@@ -93,9 +99,45 @@ class HMMClassifier:
         -------
         self
         """
-        pass
 
-    def decision_function(self):
+        self.models = {}
+
+        for label, sequences in X_dict.items():
+            valid_seqs = []
+            lengths = []
+            
+            for seq in sequences:
+                try:
+                    features = np.array(seq, dtype=float)
+                    if features.ndim == 2 and len(features) >= 5:
+                        valid_seqs.append(features)
+                        lengths.append(len(features))
+                except Exception:
+                    continue
+
+            if not valid_seqs:
+                continue
+
+            if len(valid_seqs) < 2:
+                print(f"Klasse '{label.upper()}' übersprungen: zu wenige Sequenzen ({len(valid_seqs)}).")
+                continue
+
+            X_concat = np.vstack(valid_seqs)
+
+            model = hmm.GaussianHMM(
+                n_components=8,
+                covariance_type="diag",
+                n_iter=500, 
+                random_state=42,
+            )
+
+            model.fit(X_concat, lengths)
+            self.models[label] = model
+            print(f"HMM für '{label.upper()}' trainiert ({len(valid_seqs)} Sequenzen).")
+
+        return self
+
+    def decision_function(self, sequence):
         """
         TODO: Berechne Scores für jede Klasse
 
@@ -131,9 +173,25 @@ class HMMClassifier:
         scores : array-like
             Score pro Sequenz und Klasse
         """
-        pass
 
-    def predict(self):
+        scores = {}
+
+        try:
+            features = np.array(sequence, dtype=float)
+            if features.ndim != 2 or len(features) < 3:
+                return scores
+        except Exception:
+            return scores
+
+        for label, model in self.models.items():
+            try:
+                scores[label] = model.score(features)
+            except Exception:
+                scores[label] = float('-inf')
+
+        return scores
+
+    def predict(self, sequence):
         """
         TODO: Sage Klassenlabels voraus
 
@@ -165,4 +223,23 @@ class HMMClassifier:
         labels : list
             Vorhergesagte Labels
         """
-        pass
+        
+        scores = self.decision_function(sequence)
+        if not scores:
+            return None, {}
+
+        best_label = max(scores, key=lambda label: scores[label])
+        return best_label, scores
+
+    def save(self, filepath="data/hmm.pkl"):
+        directory = os.path.dirname(filepath)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(filepath, "wb") as f:
+            pickle.dump(self, f)
+        print(f"\nModell erfolgreich unter '{filepath}' gespeichert.")
+
+    @classmethod
+    def load(cls, filepath="data/hmm.pkl"):
+        with open(filepath, "rb") as f:
+            return pickle.load(f)
