@@ -1,5 +1,6 @@
-from SignalHub import GALY, bgr, get_nested_key, Module
-
+import numpy as np
+from SignalHub import GALY, bgr, Module
+from GestureRecognition.hmmclassifier import HMMClassifier
 
 class HMMModule(Module):
     """
@@ -64,11 +65,17 @@ class HMMModule(Module):
         **kwargs
             Weitere Parameter, die an :class:`Module` weitergegeben werden.
         """
+
         super().__init__(
-            inputSignals=["config", "preprocessor"],
+            inputSignals=["config", "preprocessor", "galy"],
             outputSchema={"type": "object", "properties": {outputSignal: {}}},
             name="hiddenmarkov",
         )
+
+        self.model_path = model_path
+        self.outputSignal = outputSignal
+        self.last_label = "Warte..."
+        self.last_score = 0.0
 
     def start(self, data):
         """
@@ -107,6 +114,18 @@ class HMMModule(Module):
         dict
             Ein leeres Dictionary.
         """
+
+        try:
+            self.classifier = HMMClassifier.load(self.model_path)
+            print("\n" + "---------------------------------------------")
+            print("[OK] HMM-Modell erfolgreich geladen!")
+            print(f"Trainierte Klassen: {list(self.classifier.models.keys())}")
+            print("---------------------------------------------" + "\n")
+
+        except Exception as e:
+            print(f"\n[FEHLER] Modell aus '{self.model_path}' konnte nicht geladen werden: {e}\n")
+            self.classifier = None
+            
         return {}
 
     def step(self, data):
@@ -169,7 +188,27 @@ class HMMModule(Module):
 
             ``return {outputSignal: result, "galy": galy}``
         """
-        return {}
+        
+        preprocessor_result = data.get("preprocessor")
+
+        galy = data.get("galy")
+        if galy is None:
+            galy = GALY()
+        galy.layer("HMM")
+
+        if self.classifier is None or preprocessor_result is None:
+            return {self.outputSignal: {}, "galy": galy}
+
+        best_label, scores = self.classifier.predict(preprocessor_result)
+
+        if best_label is not None:
+            self.last_label = best_label.upper()
+            self.last_score = scores.get(best_label, float("-inf"))
+
+            text = f"Erkannt: {self.last_label} (Score: {self.last_score:.2f})"
+            galy.putText(text=text, org=(10, 40), fontScale=1.0, color=bgr("#00FF00"))
+
+        return {self.outputSignal: {}, "galy": galy}
 
     def stop(self, data):
         """
@@ -191,4 +230,4 @@ class HMMModule(Module):
         data : dict
             Letzte übergebene Daten des Frameworks.
         """
-        pass
+        return {}

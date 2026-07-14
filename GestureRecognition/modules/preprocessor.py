@@ -1,5 +1,6 @@
-from SignalHub import GALY, get_nested_key, Module
+from SignalHub import get_nested_key, Module
 from collections import deque
+import numpy as np
 
 class Preprocessor(Module):
     """
@@ -57,11 +58,14 @@ class Preprocessor(Module):
         outputSignal : str, optional
             Name des erzeugten Output-Signals.
         """
+
         super().__init__(
             inputSignals=["config", "detector"],
             outputSchema={"type": "object", "properties": {outputSignal: {}}},
             name="preprocessor",
         )
+        
+        self.outputSignal = outputSignal
 
     def start(self, data):
         """
@@ -104,6 +108,18 @@ class Preprocessor(Module):
         dict
             Ein leeres Dictionary.
         """
+
+        config = data.get("config", {})
+
+        self.finger_idx = get_nested_key("preprocessor.finger_idx", config, default=8)
+        self.buffer_size = get_nested_key("preprocessor.buffer_size", config, default=140)
+        self.max_lost = get_nested_key("preprocessor.max_lost", config, default=10)
+        self.min_steps = get_nested_key("preprocessor.min_steps", config, default=15)
+
+        self.trajectory = deque(maxlen=self.buffer_size)
+        
+        self.lost_frames = 0
+
         return {}
 
     def step(self, data):
@@ -164,7 +180,49 @@ class Preprocessor(Module):
 
             ``return {outputSignal: trajectory}``
         """
-        return {}
+
+        detector_result = data.get("detector")
+
+        if detector_result is None or not detector_result.hand_landmarks:
+            self.lost_frames += 1
+            if self.lost_frames > self.max_lost:
+                self.trajectory.clear()
+            return {self.outputSignal: None}
+
+        self.lost_frames = 0
+        
+        hand_landmarks = detector_result.hand_landmarks[0]
+        
+        finger_point = hand_landmarks[self.finger_idx]
+        current_point = np.array([finger_point.x, finger_point.y], dtype=float)
+
+        if len(self.trajectory) > 0:
+            last_recorded = np.array(self.trajectory[-1])
+            distance = float(np.linalg.norm(current_point - last_recorded))
+            if distance > 0.01:
+                self.trajectory.append(current_point)
+        else:
+            self.trajectory.append(current_point)
+
+        if len(self.trajectory) < 5:
+            return {self.outputSignal: None}
+
+        if len(self.trajectory) >= self.min_steps:
+            traj_np = np.array(self.trajectory)
+
+            center = np.mean(traj_np, axis=0)
+            centered_traj = traj_np - center
+
+            max_distance = np.max(np.abs(centered_traj))
+
+            if max_distance > 0.001:
+                normalized_traj = centered_traj / max_distance
+            else:
+                normalized_traj = centered_traj
+
+            return {self.outputSignal: normalized_traj}
+
+        return {self.outputSignal: None}
 
     def stop(self, data):
         """
@@ -186,4 +244,5 @@ class Preprocessor(Module):
         data : dict
             Letzte übergebene Daten des Frameworks.
         """
-        pass
+
+        return {}

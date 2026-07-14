@@ -3,8 +3,7 @@ import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-
-from SignalHub import GALY, bgr, get_nested_key, Module
+from SignalHub import GALY, bgr, Module
 
 mp_hand = mp.tasks.vision.HandLandmarksConnections
 
@@ -99,6 +98,8 @@ class HandDetector(Module):
             name="detector",
         )
 
+        self.outputSignal = outputSignal
+
     def start(self, data):
         """
         Initialisierung des Moduls.
@@ -130,12 +131,9 @@ class HandDetector(Module):
         dict
             Ein leeres Dictionary.
         """
-        # Pfad zum Modell (hand_landmarker.task)
+
         base_options = python.BaseOptions(model_asset_path='hand_landmarker.task')
-        # Optionen für die Handdetektion
-        options = vision.HandLandmarkerOptions(base_options=base_options,
-                                       num_hands=2)
-        # Lädt es in Arbeitsspeicher
+        options = vision.HandLandmarkerOptions(base_options=base_options, num_hands=2)
         self.detector = vision.HandLandmarker.create_from_options(options)
 
         return {}
@@ -192,7 +190,30 @@ class HandDetector(Module):
 
             ``return {outputSignal: result, "galy": galy}``
         """
-        return {}
+        
+        frame = data.get("webcam")
+        if frame is None:
+            return {}
+         
+        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
+
+        detection_result = self.detector.detect(mp_image)
+        
+        galy = GALY()
+        galy.layer("Handerkennung")
+
+        width = mp_image.width
+        height = mp_image.height
+
+        mapping = np.array([[width, 0.0, 0.0], [0.0, height, 0.0]], dtype=float)
+        galy.set_layer_affine_mapping(mapping)
+
+        if detection_result.hand_landmarks:
+            hand = detection_result.hand_landmarks[0]
+            draw_hand_landmarks(hand, galy)
+                
+        return {self.outputSignal: detection_result, "galy": galy}
 
     def stop(self, data):
         """
@@ -214,4 +235,4 @@ class HandDetector(Module):
         data : dict
             Letzte übergebene Daten des Frameworks.
         """
-        pass
+        return {}

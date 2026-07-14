@@ -1,4 +1,4 @@
-from SignalHub import Module, get_nested_key
+from SignalHub import Module, get_nested_key, GALY, bgr
 from collections import deque
 
 class TrailMarker(Module):
@@ -52,11 +52,13 @@ class TrailMarker(Module):
         outputSignal : str, optional
             Name des erzeugten Output-Signals.
         """
+
         super().__init__(
-            inputSignals=["config", "detector"],
+            inputSignals=["config", "detector", "galy"],
             outputSchema={"type": "object", "properties": {outputSignal: {}}},
             name="trailmarker",
         )
+        self.outputSignal = outputSignal
 
     def start(self, data):
         """
@@ -100,6 +102,18 @@ class TrailMarker(Module):
         dict
             Ein leeres Dictionary.
         """
+                
+        config = data.get("config", {})
+        
+        self.finger_idx = get_nested_key("preprocessor.finger_idx", config, default=8)
+        self.buffer_size = get_nested_key("preprocessor.buffer_size", config, default=140)
+        self.max_lost = get_nested_key("preprocessor.max_lost", config, default=10)
+        
+        self.width = get_nested_key("webcam.width", config, default=640)
+        self.height = get_nested_key("webcam.height", config, default=360)
+
+        self.trajectory = deque(maxlen=self.buffer_size)
+        self.lost_frames = 0
         return {}
 
     def step(self, data):
@@ -155,7 +169,30 @@ class TrailMarker(Module):
 
             ``return { ..., "galy": galy}``
         """
-        return {}
+                
+        detector_result = data.get("detector")
+        galy = data.get("galy")
+        if galy is None:
+            galy = GALY()
+            
+        if detector_result is None or not detector_result.hand_landmarks:
+            self.lost_frames += 1
+            if self.lost_frames > self.max_lost:
+                self.trajectory.clear()
+        else:
+            self.lost_frames = 0
+            hand_landmarks = detector_result.hand_landmarks[0]
+
+            finger_point = hand_landmarks[self.finger_idx]
+            
+            px = int(finger_point.x * self.width)
+            py = int(finger_point.y * self.height)
+            self.trajectory.append((px, py))
+                
+        for i in range(1, len(self.trajectory)):
+            galy.line(self.trajectory[i-1], self.trajectory[i], bgr("#00FFFF"), 2) 
+                
+        return {self.outputSignal: {}, "galy": galy}
 
     def stop(self, data):
         """
@@ -177,4 +214,4 @@ class TrailMarker(Module):
         data : dict
             Letzte übergebene Daten des Frameworks.
         """
-        pass
+        return {}
